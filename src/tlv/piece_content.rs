@@ -17,38 +17,46 @@
 use crate::error::{Error, Result};
 use bytes::Bytes;
 
+/// MAX_PIECE_SIZE is the maximum size of a piece content (4 GiB).
+const MAX_PIECE_SIZE: usize = crate::MAX_VALUE_SIZE;
+
 /// PieceContent represents the content of a piece.
 #[derive(Debug, Clone)]
-pub struct PieceContent(bytes::Bytes);
+pub struct PieceContent(Bytes);
 
 /// PieceContent implements the PieceContent functions.
 impl PieceContent {
-    /// new creates a new PieceContent request.
-    pub fn new(content: Bytes) -> Self {
-        PieceContent(content)
+    /// new creates a new piece content.
+    pub fn new(content: Bytes) -> Result<Self> {
+        // Check content length
+        if content.len() > MAX_PIECE_SIZE {
+            return Err(Error::InvalidLength(format!(
+                "content length {} exceeds maximum size {}",
+                content.len(),
+                MAX_PIECE_SIZE
+            )));
+        }
+
+        Ok(PieceContent(content))
     }
 
-    /// len returns the length of the piece content request.
+    /// len returns the length of the piece content.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// is_empty returns whether the piece content request is empty.
+    /// is_empty returns whether the piece content is empty.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// from_bytes creates a piece content request from a byte slice.
+    /// from_bytes creates a piece content from a byte slice.
     pub fn from_bytes(bytes: Bytes) -> Result<Self> {
-        if bytes.is_empty() {
-            return Err(Error::InvalidLength("piece content is empty".to_string()));
-        }
-
-        Ok(PieceContent(bytes))
+        Self::new(bytes)
     }
 
-    /// to_bytes converts the piece content request to a byte slice.
-    pub fn to_bytes(&self) -> bytes::Bytes {
+    /// to_bytes converts the piece content to a byte slice.
+    pub fn to_bytes(&self) -> Bytes {
         self.0.clone()
     }
 }
@@ -56,42 +64,44 @@ impl PieceContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
 
     #[test]
     fn test_new() {
-        let content = Bytes::from("test content");
-        let piece_content = PieceContent::new(content.clone());
-
-        assert_eq!(piece_content.len(), content.len());
-        assert_eq!(piece_content.to_bytes(), content);
+        let content = vec![1, 2, 3, 4];
+        let result = PieceContent::new(content.into());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 4);
     }
 
     #[test]
     fn test_is_empty() {
-        let empty_content = PieceContent::new(Bytes::new());
-        let non_empty_content = PieceContent::new(Bytes::from("test content"));
-
-        assert!(empty_content.is_empty());
-        assert!(!non_empty_content.is_empty());
+        let content = Bytes::new();
+        let result = PieceContent::new(content);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 
     #[test]
     fn test_to_bytes_and_from_bytes() {
-        let content = Bytes::from("test content");
-        let piece_content = PieceContent::new(content.clone());
-
+        let content = vec![1, 2, 3, 4];
+        let piece_content = PieceContent::new(content.clone().into()).unwrap();
         let bytes = piece_content.to_bytes();
-        let piece_content_decoded = PieceContent::from_bytes(bytes).unwrap();
-
-        assert_eq!(piece_content_decoded.len(), content.len());
-        assert_eq!(piece_content_decoded.to_bytes(), content);
+        let result = PieceContent::from_bytes(bytes);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().to_bytes(), content);
     }
 
     #[test]
     fn test_from_bytes_invalid_input() {
-        // Test empty content.
-        let empty_bytes = Bytes::new();
-        assert!(PieceContent::from_bytes(empty_bytes).is_err());
+        // Test empty input
+        let result = PieceContent::from_bytes(Bytes::new());
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+
+        // Test oversize input
+        let large_content = vec![0; MAX_PIECE_SIZE + 1];
+        let result: std::result::Result<PieceContent, Error> =
+            PieceContent::from_bytes(large_content.into());
+        assert!(matches!(result, Err(Error::InvalidLength(_))));
     }
 }

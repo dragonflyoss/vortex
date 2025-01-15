@@ -41,7 +41,7 @@ impl TryFrom<u8> for Tag {
     type Error = ();
 
     /// Converts a u8 to a Tag enum.
-    fn try_from(value: u8) -> std::result::Result<Self, ()> {
+    fn try_from(value: u8) -> Result<Self, ()> {
         match value {
             0 => Ok(Tag::DownloadPiece),
             1 => Ok(Tag::PieceContent),

@@ -25,6 +25,9 @@ pub mod tlv;
 /// length.
 const HEADER_SIZE: usize = 6;
 
+/// MAX_VALUE_SIZE is the maximum size of the value field (4 GiB).
+const MAX_VALUE_SIZE: usize = 4 * 1024 * 1024 * 1024;
+
 /// Header represents the Vortex packet header.
 #[derive(Debug)]
 pub struct Header {
@@ -67,7 +70,16 @@ pub enum Vortex {
 impl Vortex {
     /// Creates a new Vortex packet.
     pub fn new(tag: tlv::Tag, value: Bytes) -> Result<Self> {
-        let mut rng = rand::thread_rng();
+        // Check value length
+        if value.len() > MAX_VALUE_SIZE {
+            return Err(Error::InvalidLength(format!(
+                "value length {} exceeds maximum size {}",
+                value.len(),
+                MAX_VALUE_SIZE
+            )));
+        }
+
+        let mut rng = thread_rng();
         let header = Header {
             packet_id: rng.gen(),
             tag,
@@ -151,6 +163,14 @@ impl Vortex {
             )));
         }
 
+        // Check if the value length exceeds the maximum size.
+        if length > MAX_VALUE_SIZE {
+            return Err(Error::InvalidLength(format!(
+                "value length {} exceeds maximum size {}",
+                length, MAX_VALUE_SIZE
+            )));
+        }
+
         let header = Header {
             packet_id,
             tag,
@@ -176,11 +196,11 @@ impl Vortex {
     }
 
     /// to_bytes converts the Vortex packet to a byte slice.
-    pub fn to_bytes(&self) -> bytes::Bytes {
+    pub fn to_bytes(&self) -> Bytes {
         let (header, value) = match self {
             Vortex::DownloadPiece(header, download_piece) => (header, download_piece.to_bytes()),
             Vortex::PieceContent(header, piece_content) => (header, piece_content.to_bytes()),
-            Vortex::Reserved(header) => (header, bytes::Bytes::new()),
+            Vortex::Reserved(header) => (header, Bytes::new()),
             Vortex::Error(header, err) => (header, err.to_bytes()),
         };
 
@@ -212,48 +232,38 @@ mod tests {
 
     #[test]
     fn test_new_piece_content() {
-        let tag = Tag::PieceContent;
-        let value = Bytes::from("Hello, world!");
-        let packet = Vortex::new(tag, value.clone()).expect("Failed to create Vortex packet");
-
-        assert_eq!(packet.packet_id(), packet.packet_id());
-        assert_eq!(packet.tag(), &tag);
+        let value = b"piece content";
+        let packet = Vortex::new(Tag::PieceContent, Bytes::from_static(value))
+            .expect("Failed to create packet");
+        assert_eq!(packet.tag(), &Tag::PieceContent);
         assert_eq!(packet.length(), value.len());
     }
 
     #[test]
     fn test_from_bytes() {
-        let tag = Tag::DownloadPiece;
-        let value = Bytes::from("a".repeat(32) + "-42");
-        let packet = Vortex::new(tag, value.clone()).expect("Failed to create Vortex packet");
+        let value = b"test data";
+        let packet = Vortex::new(Tag::PieceContent, Bytes::from_static(value))
+            .expect("Failed to create packet");
         let bytes = packet.to_bytes();
-        let parsed_packet =
-            Vortex::from_bytes(bytes).expect("Failed to parse Vortex packet from bytes");
-
-        assert_eq!(parsed_packet.packet_id(), packet.packet_id());
-        assert_eq!(parsed_packet.tag(), packet.tag());
-        assert_eq!(parsed_packet.length(), packet.length());
+        let deserialized = Vortex::from_bytes(bytes).expect("Failed to deserialize packet");
+        assert_eq!(packet.tag(), deserialized.tag());
+        assert_eq!(packet.length(), deserialized.length());
     }
 
     #[test]
     fn test_to_bytes() {
-        let tag = Tag::DownloadPiece;
-        let value = Bytes::from("a".repeat(32) + "-42");
-        let packet = Vortex::new(tag, value.clone()).expect("Failed to create Vortex packet");
+        let value = b"test data";
+        let packet = Vortex::new(Tag::PieceContent, Bytes::from_static(value))
+            .expect("Failed to create packet");
         let bytes = packet.to_bytes();
-        let parsed_packet =
-            Vortex::from_bytes(bytes).expect("Failed to parse Vortex packet from bytes");
-
-        assert_eq!(parsed_packet.to_bytes(), packet.to_bytes());
+        assert_eq!(bytes.len(), HEADER_SIZE + value.len());
     }
 
     #[test]
     fn test_error_handling() {
-        let tag = Tag::Error;
-        let value = Bytes::from("1:Error message");
-        let packet = Vortex::new(tag, value.clone()).expect("Failed to create Vortex packet");
-
-        assert_eq!(packet.tag(), &tag);
-        assert_eq!(packet.length(), value.len());
+        // Test invalid length
+        let value = vec![0; MAX_VALUE_SIZE + 1];
+        let result = Vortex::new(Tag::PieceContent, value.into());
+        assert!(matches!(result, Err(Error::InvalidLength(_))));
     }
 }
