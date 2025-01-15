@@ -46,7 +46,7 @@ impl TryFrom<u8> for Code {
     type Error = ();
 
     /// Converts a u8 to a Code enum.
-    fn try_from(value: u8) -> std::result::Result<Self, ()> {
+    fn try_from(value: u8) -> Result<Self, ()> {
         match value {
             0 => Ok(Code::Unknown),
             1 => Ok(Code::InvalidArgument),
